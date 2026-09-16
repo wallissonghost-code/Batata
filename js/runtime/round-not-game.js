@@ -36,17 +36,29 @@ export class RoundNotGame extends BaseGame {
     super(...args);
     this.arenaImage = null;
     this.dollFrames = [];
+    this.dollTurn = 0;
+    this.dollTarget = 0;
+    this.lastDollTime = performance.now();
     this.loadVisualAssets();
   }
 
   async loadVisualAssets() {
-    const [arena, doll] = await Promise.allSettled([
-      loadImage(MAP_URL),
-      loadDollFrames()
-    ]);
+    const [arena, doll] = await Promise.allSettled([loadImage(MAP_URL), loadDollFrames()]);
     if (arena.status === 'fulfilled') this.arenaImage = arena.value;
     if (doll.status === 'fulfilled') this.dollFrames = doll.value;
     this.draw();
+  }
+
+  switchPhase() {
+    super.switchPhase();
+    this.dollTarget = this.phase === 'red' ? 1 : 0;
+  }
+
+  update(dt) {
+    super.update(dt);
+    const speed = 2.8;
+    if (this.dollTurn < this.dollTarget) this.dollTurn = Math.min(this.dollTarget, this.dollTurn + dt * speed);
+    else if (this.dollTurn > this.dollTarget) this.dollTurn = Math.max(this.dollTarget, this.dollTurn - dt * speed);
   }
 
   drawArenaImage(ctx, width, height) {
@@ -64,28 +76,24 @@ export class RoundNotGame extends BaseGame {
     ctx.clearRect(0, 0, width, height);
     if (!this.drawArenaImage(ctx, width, height)) {
       const bg = ctx.createLinearGradient(0, 0, 0, height);
-      bg.addColorStop(0, '#153d28'); bg.addColorStop(.25, '#33543b'); bg.addColorStop(1, '#77715b');
-      ctx.fillStyle = bg; ctx.fillRect(0, 0, width, height);
+      bg.addColorStop(0, '#153d28');
+      bg.addColorStop(.25, '#33543b');
+      bg.addColorStop(1, '#77715b');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, width, height);
     }
-    const finishY = height * .22;
-    ctx.fillStyle = '#ff3949'; ctx.shadowColor = '#ff3949'; ctx.shadowBlur = 9;
-    ctx.fillRect(width * .06, finishY, width * .88, 3); ctx.shadowBlur = 0;
-    ctx.fillStyle = '#eaffef'; ctx.font = '900 11px system-ui'; ctx.fillText('CHEGADA', 12, finishY - 8);
     this.drawWatcher(ctx, width / 2, height * .13);
-    [...this.players].sort((a,b) => a.y-b.y).forEach(player => this.drawPlayer(ctx, player));
+    [...this.players].sort((a, b) => a.y - b.y).forEach(player => this.drawPlayer(ctx, player));
   }
 
   dollFrameIndex() {
     const count = this.dollFrames.length;
     if (!count) return -1;
-    const progress = 1 - Math.min(1, this.phaseLeft / Math.max(.001, this.phase === 'red' ? 2.4 : 4));
-    if (this.phase === 'red') return Math.min(count - 1, Math.floor(progress * count));
-    return Math.max(0, count - 1 - Math.floor(progress * count));
+    return Math.min(count - 1, Math.round(this.dollTurn * (count - 1)));
   }
 
   drawWatcher(ctx, x, y) {
-    const index = this.dollFrameIndex();
-    const image = this.dollFrames[index];
+    const image = this.dollFrames[this.dollFrameIndex()];
     if (!image) return super.drawWatcher(ctx, x, y);
     const targetHeight = Math.min(this.h * .22, 150);
     const targetWidth = targetHeight * image.naturalWidth / image.naturalHeight;
