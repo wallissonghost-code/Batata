@@ -1,9 +1,9 @@
 const FRAME_PATHS = [
   './assets/Total costa.png',
   './assets/comecando a virar.png',
-  './assets/Comecando a virar.png',
-  './assets/Lateral.png',
   './assets/Olhando de canto de rosto .png',
+  './assets/Lateral.png',
+  './assets/Comecando a virar.png',
   './assets/Frente total.png'
 ];
 
@@ -22,5 +22,7 @@ export async function loadDollFrames() {
 
 export function expectedDollFrame(turn, frameCount) {
   if (!frameCount) return -1;
-  return Math.min(frameCount - 1, Math.max(0, Math.round(turn * (frameCount - 1))));
+  if (turn <= 0) return 0;
+  if (turn >= 1) return frameCount - 1;
+  return Math.min(frameCount - 2, Math.max(1, Math.floor(turn * (frameCount - 1))));
 }
