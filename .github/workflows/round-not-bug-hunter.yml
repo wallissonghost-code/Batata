@@ -21,90 +21,76 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate doll assets and runtime contract
+      - name: Validate active doll assets and runtime contract
         shell: bash
         run: |
           set -euo pipefail
-
           files=(
             "assets/Total costa.png"
             "assets/comecando a virar.png"
             "assets/Olhando de canto de rosto .png"
-            "assets/Lateral.png"
-            "assets/Comecando a virar.png"
             "assets/Frente total.png"
           )
-
           for file in "${files[@]}"; do
-            test -s "$file" || { echo "::error::Frame ausente ou vazio: $file"; exit 1; }
+            test -s "$file" || { echo "::error::Frame ativo ausente ou vazio: $file"; exit 1; }
           done
 
           python3 - <<'PY'
           from pathlib import Path
           import re, sys
-
-          path = Path('js/runtime/doll-assets.js')
-          text = path.read_text(encoding='utf-8')
+          text = Path('js/runtime/doll-assets.js').read_text(encoding='utf-8')
           expected = [
               './assets/Total costa.png',
               './assets/comecando a virar.png',
               './assets/Olhando de canto de rosto .png',
-              './assets/Lateral.png',
-              './assets/Comecando a virar.png',
               './assets/Frente total.png',
           ]
           match = re.search(r'const FRAME_PATHS\s*=\s*\[(.*?)\];', text, re.S)
           if not match:
-              print('::error::FRAME_PATHS nao encontrado')
-              sys.exit(1)
+              print('::error::FRAME_PATHS nao encontrado'); sys.exit(1)
           actual = re.findall(r"['\"]([^'\"]+\.png)['\"]", match.group(1))
           if actual != expected:
-              print('::error::Sequencia da boneca mudou. Esperado: ' + ' -> '.join(expected))
-              print('Atual: ' + ' -> '.join(actual))
-              sys.exit(1)
-          if len(actual) != 6 or len(set(actual)) != 6:
-              print('::error::O ciclo deve possuir exatamente 6 frames unicos')
-              sys.exit(1)
-          print('OK: contrato dos 6 frames esta correto e sem duplicatas.')
+              print('::error::Sequencia ativa incorreta. Esperado: ' + ' -> '.join(expected))
+              print('Atual: ' + ' -> '.join(actual)); sys.exit(1)
+          if len(actual) != 4 or len(set(actual)) != 4:
+              print('::error::A virada deve possuir exatamente 4 poses unicas'); sys.exit(1)
+          forbidden = {'./assets/Lateral.png', './assets/Comecando a virar.png'}
+          if forbidden.intersection(actual):
+              print('::error::Frame removido da animacao voltou ao runtime'); sys.exit(1)
+          print('OK: 4 poses ativas, unicas e na ordem validada.')
           PY
 
       - name: Validate bot regression rules
         shell: bash
         run: |
           set -euo pipefail
-          grep -q "EXPECTED_FORWARD = \[0, 1, 2, 3, 4, 5\]" js/test/visual-gameplay-bot.js
-          grep -q "EXPECTED_BACKWARD = \[5, 4, 3, 2, 1, 0\]" js/test/visual-gameplay-bot.js
+          grep -q "EXPECTED_FORWARD = \[0, 1, 2, 3\]" js/test/visual-gameplay-bot.js
+          grep -q "EXPECTED_BACKWARD = \[3, 2, 1, 0\]" js/test/visual-gameplay-bot.js
           grep -q "walk: 'Total costa'" js/test/visual-gameplay-bot.js
           grep -q "watch: 'Frente total'" js/test/visual-gameplay-bot.js
-          echo "OK: bot conhece os estados seguros e proibidos."
+          echo "OK: bot treinado para as 4 poses."
 
-      - name: Reject repeated frame inside one turn
+      - name: Reject repeated or skipped frame inside one turn
         shell: bash
         run: |
           python3 - <<'PY'
-          import sys
-
           def validate(seq, expected):
-              if seq != expected:
-                  return False
-              return len(seq) == len(set(seq)) == 6
-
-          good_forward = [0,1,2,3,4,5]
-          good_backward = [5,4,3,2,1,0]
-          bad_repeat = [0,1,2,2,3,4,5]
-          bad_skip = [0,1,3,4,5]
-
-          assert validate(good_forward, good_forward)
-          assert validate(good_backward, good_backward)
-          assert not validate(bad_repeat, good_forward)
-          assert not validate(bad_skip, good_forward)
-          print('OK: repeticao ou salto de frame reprova o teste.')
+              return seq == expected and len(seq) == len(set(seq)) == 4
+          forward = [0,1,2,3]
+          backward = [3,2,1,0]
+          assert validate(forward, forward)
+          assert validate(backward, backward)
+          assert not validate([0,1,1,2,3], forward)
+          assert not validate([0,2,3], forward)
+          assert not validate([3,2,2,1,0], backward)
+          assert not validate([3,1,0], backward)
+          print('OK: repeticao e salto de frame sao rejeitados.')
           PY
 
       - name: JavaScript syntax check
         shell: bash
         run: |
           set -euo pipefail
-          for file in $(find js -type f -name '*.js' -print); do
+          find js -type f -name '*.js' -print0 | while IFS= read -r -d '' file; do
             node --check "$file"
           done
