@@ -1,0 +1,7 @@
+{
+  "map": "FB798BF0-2248-4F8C-9F80-D88DDD6B05C0.png",
+  "doll": ["back.png", "turn-01.png", "turn-02.png", "front.png"],
+  "guards": ["circle.png", "triangle.png", "square.png"],
+  "players": ["p1", "p2", "p3", "p4"],
+  "playerFrames": ["idle.png", "walk-01.png", "walk-02.png", "walk-03.png", "walk-04.png"]
+}
