@@ -1,5 +1,5 @@
-const EXPECTED_FORWARD = [0, 1, 2, 3, 4, 5];
-const EXPECTED_BACKWARD = [5, 4, 3, 2, 1, 0];
+const EXPECTED_FORWARD = [0, 1, 2, 3];
+const EXPECTED_BACKWARD = [3, 2, 1, 0];
 
 export class VisualGameplayBot {
   constructor(game) {
@@ -21,14 +21,10 @@ export class VisualGameplayBot {
   validateTransition(sequence, expected, name) {
     if (!sequence.length) return;
     const compact = sequence.filter((frame, index) => index === 0 || frame !== sequence[index - 1]);
-    let cursor = 0;
-    for (const frame of compact) {
-      const next = expected.indexOf(frame, cursor);
-      if (next === -1) {
-        this.sequenceFailures.push({ transition: name, sequence: [...compact], expected: [...expected] });
-        return;
-      }
-      cursor = next;
+    const duplicate = new Set(compact).size !== compact.length;
+    const exact = compact.length === expected.length && compact.every((frame, index) => frame === expected[index]);
+    if (duplicate || !exact) {
+      this.sequenceFailures.push({ transition: name, sequence: [...compact], expected: [...expected], duplicate });
     }
   }
 
@@ -40,12 +36,12 @@ export class VisualGameplayBot {
     let frameOk = true;
 
     if (g.cycle === 'walk') frameOk = frame === 0;
-    else if (g.cycle === 'watch') frameOk = frame === maxFrame;
+    else if (g.cycle === 'watch') frameOk = frame === 3 && maxFrame === 3;
     else if (g.cycle === 'turn-front') {
-      frameOk = frame >= 0 && frame <= maxFrame;
+      frameOk = frame >= 0 && frame <= 3;
       this.pushUnique(this.turnFrontFrames, frame);
     } else if (g.cycle === 'turn-back') {
-      frameOk = frame >= 0 && frame <= maxFrame;
+      frameOk = frame >= 0 && frame <= 3;
       this.pushUnique(this.turnBackFrames, frame);
     }
 
@@ -68,12 +64,7 @@ export class VisualGameplayBot {
 
     this.lastCycle = g.cycle;
     this.lastFrame = frame;
-    this.samples.push({
-      cycle: g.cycle,
-      frame,
-      frameOk,
-      alive: g.players.filter(p => p.alive && !p.done).length
-    });
+    this.samples.push({ cycle: g.cycle, frame, frameOk, alive: g.players.filter(p => p.alive && !p.done).length });
     if (this.samples.length > 600) this.samples.shift();
   }
 
@@ -84,8 +75,8 @@ export class VisualGameplayBot {
       expected: {
         walk: 'Total costa',
         watch: 'Frente total',
-        forward: ['Total costa', 'comecando a virar 187KB', 'Olhando de canto de rosto', 'Lateral', 'Comecando a virar 191KB', 'Frente total'],
-        backward: ['Frente total', 'Comecando a virar 191KB', 'Lateral', 'Olhando de canto de rosto', 'comecando a virar 187KB', 'Total costa']
+        forward: ['Total costa', 'comecando a virar 187KB', 'Olhando de canto de rosto', 'Frente total'],
+        backward: ['Frente total', 'Olhando de canto de rosto', 'comecando a virar 187KB', 'Total costa']
       },
       cycles: this.cycles,
       samples: this.samples.length,
