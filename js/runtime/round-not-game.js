@@ -1,4 +1,5 @@
 import { RoundNotGame as BaseGame } from '../game.js';
+import { DollController } from './doll-controller.js';
 import JSZip from 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm';
 
 const MAP_URL = './FB798BF0-2248-4F8C-9F80-D88DDD6B05C0.png';
@@ -20,7 +21,6 @@ async function loadDollFrames() {
   const files = Object.values(zip.files)
     .filter(file => !file.dir && /\.(png|webp|jpe?g)$/i.test(file.name))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-
   const frames = [];
   for (const file of files) {
     const blob = await file.async('blob');
@@ -36,9 +36,10 @@ export class RoundNotGame extends BaseGame {
     super(...args);
     this.arenaImage = null;
     this.dollFrames = [];
-    this.dollTurn = 0;
-    this.dollTarget = 0;
-    this.lastDollTime = performance.now();
+    this.doll = new DollController();
+    this.cycle = 'walk';
+    this.walkLeft = 5;
+    this.watchLeft = 2.5;
     this.loadVisualAssets();
   }
 
@@ -49,24 +50,94 @@ export class RoundNotGame extends BaseGame {
     this.draw();
   }
 
-  switchPhase() {
-    super.switchPhase();
-    this.dollTarget = this.phase === 'red' ? 1 : 0;
+  start() {
+    this.running = true;
+    this.time = this.duration;
+    this.last = performance.now();
+    this.startWalkCycle();
+    requestAnimationFrame(t => this.loop(t));
+  }
+
+  startWalkCycle() {
+    this.cycle = 'walk';
+    this.phase = 'green';
+    this.walkLeft = 5;
+    this.doll.beginWalk();
+    this.onPhase('green');
+  }
+
+  startTurnCycle() {
+    this.cycle = 'turn-front';
+    this.phase = 'green';
+    this.doll.beginStopCountdown();
+  }
+
+  startWatchCycle() {
+    this.cycle = 'watch';
+    this.phase = 'red';
+    this.watchLeft = 2.2 + Math.random() * 2.2;
+    this.doll.beginWatch(this.watchLeft);
+    for (const p of this.players) {
+      if (!p.alive || p.done) continue;
+      p.freeze = Math.random() < .22 ? .25 + Math.random() * .7 : 0;
+    }
+    this.onPhase('red');
+  }
+
+  startReturnCycle() {
+    this.cycle = 'turn-back';
+    this.phase = 'red';
+    this.doll.beginReturn();
   }
 
   update(dt) {
-    super.update(dt);
-    const speed = 2.8;
-    if (this.dollTurn < this.dollTarget) this.dollTurn = Math.min(this.dollTarget, this.dollTurn + dt * speed);
-    else if (this.dollTurn > this.dollTarget) this.dollTurn = Math.max(this.dollTarget, this.dollTurn - dt * speed);
+    if (!this.running) return;
+    this.time -= dt;
+    this.doll.update(dt);
+
+    if (this.cycle === 'walk') {
+      this.walkLeft -= dt;
+      if (this.walkLeft <= 0) this.startTurnCycle();
+    } else if (this.cycle === 'turn-front') {
+      if (this.doll.countdown <= 0) this.startWatchCycle();
+    } else if (this.cycle === 'watch') {
+      this.watchLeft -= dt;
+      if (this.watchLeft <= 0) this.startReturnCycle();
+    } else if (this.cycle === 'turn-back' && this.doll.canWalk) {
+      this.startWalkCycle();
+    }
+
+    for (const p of this.players) {
+      if (!p.alive || p.done) continue;
+      if (this.cycle === 'walk' || this.cycle === 'turn-front') {
+        p.step += dt * 8;
+        p.y -= p.speed * dt * (.75 + Math.random() * .5);
+      } else if (this.cycle === 'watch' && p.freeze > 0) {
+        p.step += dt * 8;
+        p.y -= p.speed * dt * .72;
+        p.freeze -= dt;
+        if (p.freeze <= 0) p.alive = false;
+      }
+      if (p.y < this.h * .25) {
+        p.done = true;
+        this.finishers.push(p);
+      }
+    }
+
+    if (this.time <= 0 || this.players.every(p => !p.alive || p.done)) {
+      this.running = false;
+      for (const p of this.players) if (!p.done) p.alive = false;
+      this.stats();
+      this.onFinish(this.finishers);
+    }
+    this.stats();
   }
 
   drawArenaImage(ctx, width, height) {
     const image = this.arenaImage;
     if (!image) return false;
     const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
-    const sw = width / scale;
-    const sh = height / scale;
+    const sw = width / scale, sh = height / scale;
     ctx.drawImage(image, (image.naturalWidth - sw) / 2, (image.naturalHeight - sh) / 2, sw, sh, 0, 0, width, height);
     return true;
   }
@@ -75,31 +146,24 @@ export class RoundNotGame extends BaseGame {
     const ctx = this.x, width = this.w, height = this.h;
     ctx.clearRect(0, 0, width, height);
     if (!this.drawArenaImage(ctx, width, height)) {
-      const bg = ctx.createLinearGradient(0, 0, 0, height);
-      bg.addColorStop(0, '#153d28');
-      bg.addColorStop(.25, '#33543b');
-      bg.addColorStop(1, '#77715b');
-      ctx.fillStyle = bg;
+      ctx.fillStyle = '#07110c';
       ctx.fillRect(0, 0, width, height);
     }
-    this.drawWatcher(ctx, width / 2, height * .13);
+    this.drawWatcher(ctx, width / 2, height * .235);
     [...this.players].sort((a, b) => a.y - b.y).forEach(player => this.drawPlayer(ctx, player));
   }
 
   dollFrameIndex() {
     const count = this.dollFrames.length;
     if (!count) return -1;
-    return Math.min(count - 1, Math.round(this.dollTurn * (count - 1)));
+    return Math.min(count - 1, Math.round(this.doll.turn * (count - 1)));
   }
 
-  drawWatcher(ctx, x, y) {
+  drawWatcher(ctx, x, groundY) {
     const image = this.dollFrames[this.dollFrameIndex()];
-    if (!image) return super.drawWatcher(ctx, x, y);
-    const targetHeight = Math.min(this.h * .22, 150);
+    if (!image) return super.drawWatcher(ctx, x, groundY);
+    const targetHeight = Math.min(this.h * .19, 132);
     const targetWidth = targetHeight * image.naturalWidth / image.naturalHeight;
-    ctx.save();
-    ctx.translate(x, y + targetHeight * .25);
-    ctx.drawImage(image, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-    ctx.restore();
+    ctx.drawImage(image, x - targetWidth / 2, groundY - targetHeight, targetWidth, targetHeight);
   }
 }
