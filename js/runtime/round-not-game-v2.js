@@ -4,6 +4,8 @@ import { VisualGameplayBot } from '../test/visual-gameplay-bot.js';
 
 const MAP_FINISH_LINE_Y = 0.426;
 const DOLL_LINE_OFFSET = 0.018;
+const PLAYER_RADIUS = 15;
+const PLAYER_FINISH_CLEARANCE = 18;
 
 export class RoundNotGame extends Game {
   constructor(...args) {
@@ -11,6 +13,7 @@ export class RoundNotGame extends Game {
     this.visualGameplayBot = new VisualGameplayBot(this);
     this.visualSampleClock = 0;
     this.mapProjection = null;
+    this.watchAudit = { checks: 0, movers: 0, killedMovers: 0, stoppedSafe: 0, failures: [] };
     loadDollFrames().then(frames => {
       this.dollFrames = frames;
       this.draw();
@@ -26,9 +29,6 @@ export class RoundNotGame extends Game {
   getMapProjection(width = this.w, height = this.h) {
     const image = this.arenaImage;
     if (!image?.naturalWidth || !image?.naturalHeight) return null;
-
-    // Desktop keeps cover. Portrait/mobile uses a controlled contain-like camera
-    // so the arena side structures remain visible instead of being aggressively cropped.
     const portrait = height > width * 1.15;
     const coverScale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
     const widthScale = width / image.naturalWidth;
@@ -44,7 +44,6 @@ export class RoundNotGame extends Game {
     const image = this.arenaImage;
     const p = this.getMapProjection(width, height);
     if (!image || !p) return false;
-    this.mapProjection = p;
     ctx.fillStyle = '#030806';
     ctx.fillRect(0, 0, width, height);
     const drawWidth = p.sourceWidth * p.scale;
@@ -64,9 +63,7 @@ export class RoundNotGame extends Game {
     return (p.dy || 0) + (sourceLineY - p.sourceY) * p.scale;
   }
 
-  dollFrameIndex() {
-    return expectedDollFrame(this.doll.turn, this.dollFrames.length);
-  }
+  dollFrameIndex() { return expectedDollFrame(this.doll.turn, this.dollFrames.length); }
 
   draw() {
     const ctx = this.x, width = this.w, height = this.h;
@@ -75,8 +72,7 @@ export class RoundNotGame extends Game {
       ctx.fillStyle = '#07110c';
       ctx.fillRect(0, 0, width, height);
     }
-    const finishY = this.finishLineY();
-    this.drawWatcher(ctx, width / 2, finishY);
+    this.drawWatcher(ctx, width / 2, this.finishLineY());
     [...this.players].sort((a, b) => a.y - b.y).forEach(player => this.drawPlayer(ctx, player));
   }
 
@@ -85,9 +81,41 @@ export class RoundNotGame extends Game {
     if (!image) return super.drawWatcher(ctx, x, groundY);
     const targetHeight = Math.min(this.h * .19, 132);
     const targetWidth = targetHeight * image.naturalWidth / image.naturalHeight;
-    // Tiny upward visual correction: the line remains the gameplay finish anchor.
     const visualGroundY = groundY - targetHeight * DOLL_LINE_OFFSET;
     ctx.drawImage(image, x - targetWidth / 2, visualGroundY - targetHeight, targetWidth, targetHeight);
+  }
+
+  separatePlayers() {
+    const active = this.players.filter(p => p.alive && !p.done);
+    const minDistance = PLAYER_RADIUS * 2;
+    for (let i = 0; i < active.length; i++) {
+      for (let j = i + 1; j < active.length; j++) {
+        const a = active[i], b = active[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let distance = Math.hypot(dx, dy);
+        if (distance >= minDistance) continue;
+        if (distance < .01) { dx = (Math.random() - .5) || .1; dy = .2; distance = Math.hypot(dx, dy); }
+        const overlap = (minDistance - distance) * .5;
+        const nx = dx / distance, ny = dy / distance;
+        a.x -= nx * overlap; a.y -= ny * overlap;
+        b.x += nx * overlap; b.y += ny * overlap;
+        a.x = Math.max(PLAYER_RADIUS, Math.min(this.w - PLAYER_RADIUS, a.x));
+        b.x = Math.max(PLAYER_RADIUS, Math.min(this.w - PLAYER_RADIUS, b.x));
+      }
+    }
+  }
+
+  startWatchCycle() {
+    super.startWatchCycle();
+    // Audit starts exactly when the fully-front frame becomes the active watch state.
+    for (const p of this.players) {
+      if (!p.alive || p.done) continue;
+      p.wasMovingWhenWatched = p.freeze > 0;
+      p.watchAuditPending = true;
+      this.watchAudit.checks++;
+      if (p.wasMovingWhenWatched) this.watchAudit.movers++;
+      else this.watchAudit.stoppedSafe++;
+    }
   }
 
   update(dt) {
@@ -117,9 +145,22 @@ export class RoundNotGame extends Game {
         p.step += dt * 8;
         p.y -= p.speed * dt * .72;
         p.freeze -= dt;
-        if (p.freeze <= 0) p.alive = false;
+        if (p.freeze <= 0) {
+          p.alive = false;
+          if (p.wasMovingWhenWatched) this.watchAudit.killedMovers++;
+          else this.watchAudit.failures.push({ user: p.user, reason: 'stopped-player-killed' });
+          p.watchAuditPending = false;
+        }
       }
-      if (p.y <= finishY) {
+    }
+
+    this.separatePlayers();
+
+    for (const p of this.players) {
+      if (!p.alive || p.done) continue;
+      // Player must physically clear the red line: their trailing/body clearance,
+      // not just the sprite center, has to pass beyond the doll's line.
+      if (p.y + PLAYER_FINISH_CLEARANCE <= finishY) {
         p.done = true;
         this.finishers.push(p);
       }
@@ -140,7 +181,11 @@ export class RoundNotGame extends Game {
     }
   }
 
+  getWatchAuditReport() {
+    return { ...this.watchAudit, ok: this.watchAudit.failures.length === 0 && this.watchAudit.killedMovers <= this.watchAudit.movers };
+  }
+
   getVisualTestReport() {
-    return this.visualGameplayBot.report();
+    return { ...this.visualGameplayBot.report(), watchAudit: this.getWatchAuditReport() };
   }
 }
