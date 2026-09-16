@@ -2,9 +2,8 @@ import { RoundNotGame as Game } from './round-not-game.js';
 import { loadDollFrames, expectedDollFrame } from './doll-assets.js';
 import { VisualGameplayBot } from '../test/visual-gameplay-bot.js';
 
-// Finish line measured once in the source arena image.
-// Keeping it in image-space makes the anchor survive cover/crop/zoom changes.
 const MAP_FINISH_LINE_Y = 0.426;
+const DOLL_LINE_OFFSET = 0.018;
 
 export class RoundNotGame extends Game {
   constructor(...args) {
@@ -27,11 +26,17 @@ export class RoundNotGame extends Game {
   getMapProjection(width = this.w, height = this.h) {
     const image = this.arenaImage;
     if (!image?.naturalWidth || !image?.naturalHeight) return null;
-    const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
-    const sourceWidth = width / scale;
-    const sourceHeight = height / scale;
+
+    // Desktop keeps cover. Portrait/mobile uses a controlled contain-like camera
+    // so the arena side structures remain visible instead of being aggressively cropped.
+    const portrait = height > width * 1.15;
+    const coverScale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+    const widthScale = width / image.naturalWidth;
+    const scale = portrait ? Math.max(widthScale, coverScale * .72) : coverScale;
+    const sourceWidth = Math.min(image.naturalWidth, width / scale);
+    const sourceHeight = Math.min(image.naturalHeight, height / scale);
     const sourceX = (image.naturalWidth - sourceWidth) / 2;
-    const sourceY = (image.naturalHeight - sourceHeight) / 2;
+    const sourceY = Math.max(0, (image.naturalHeight - sourceHeight) / 2);
     return { scale, sourceWidth, sourceHeight, sourceX, sourceY };
   }
 
@@ -40,16 +45,23 @@ export class RoundNotGame extends Game {
     const p = this.getMapProjection(width, height);
     if (!image || !p) return false;
     this.mapProjection = p;
-    ctx.drawImage(image, p.sourceX, p.sourceY, p.sourceWidth, p.sourceHeight, 0, 0, width, height);
+    ctx.fillStyle = '#030806';
+    ctx.fillRect(0, 0, width, height);
+    const drawWidth = p.sourceWidth * p.scale;
+    const drawHeight = p.sourceHeight * p.scale;
+    const dx = (width - drawWidth) / 2;
+    const dy = (height - drawHeight) / 2;
+    ctx.drawImage(image, p.sourceX, p.sourceY, p.sourceWidth, p.sourceHeight, dx, dy, drawWidth, drawHeight);
+    this.mapProjection = { ...p, dx, dy };
     return true;
   }
 
   finishLineY() {
     const image = this.arenaImage;
-    const p = this.getMapProjection();
+    const p = this.mapProjection || this.getMapProjection();
     if (!image || !p) return this.h * .25;
     const sourceLineY = image.naturalHeight * MAP_FINISH_LINE_Y;
-    return (sourceLineY - p.sourceY) * p.scale;
+    return (p.dy || 0) + (sourceLineY - p.sourceY) * p.scale;
   }
 
   dollFrameIndex() {
@@ -73,8 +85,9 @@ export class RoundNotGame extends Game {
     if (!image) return super.drawWatcher(ctx, x, groundY);
     const targetHeight = Math.min(this.h * .19, 132);
     const targetWidth = targetHeight * image.naturalWidth / image.naturalHeight;
-    // groundY is the red line itself: the PNG bottom is planted on it.
-    ctx.drawImage(image, x - targetWidth / 2, groundY - targetHeight, targetWidth, targetHeight);
+    // Tiny upward visual correction: the line remains the gameplay finish anchor.
+    const visualGroundY = groundY - targetHeight * DOLL_LINE_OFFSET;
+    ctx.drawImage(image, x - targetWidth / 2, visualGroundY - targetHeight, targetWidth, targetHeight);
   }
 
   update(dt) {
