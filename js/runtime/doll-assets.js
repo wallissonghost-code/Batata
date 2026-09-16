@@ -1,9 +1,14 @@
+export const DOLL_FRAME_NAMES = Object.freeze([
+  'Total costa',
+  'comecando a virar 187KB',
+  'Olhando de canto de rosto',
+  'Frente total'
+]);
+
 const FRAME_PATHS = [
   './assets/Total costa.png',
   './assets/comecando a virar.png',
   './assets/Olhando de canto de rosto .png',
-  './assets/Lateral.png',
-  './assets/Comecando a virar.png',
   './assets/Frente total.png'
 ];
 
