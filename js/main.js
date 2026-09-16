@@ -1,4 +1,4 @@
-import {RoundNotGame} from './game.js';
+import {RoundNotGame} from './runtime/round-not-game.js';
 const $=s=>document.querySelector(s),timer=$('#timer'),phase=$('#phase'),panel=$('#finishPanel'),results=$('#results');
 const fmt=s=>`${String(Math.floor(s/60)).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`;
 let botId=50;
