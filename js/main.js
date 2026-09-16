@@ -1,0 +1,9 @@
+import {RoundNotGame} from './game.js';
+const $=s=>document.querySelector(s),timer=$('#timer'),phase=$('#phase'),panel=$('#finishPanel'),results=$('#results');
+const fmt=s=>`${String(Math.floor(s/60)).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+let botId=50;
+const game=new RoundNotGame($('#game'),s=>{timer.textContent=fmt(s.time);$('#alive').textContent=s.alive;$('#finished').textContent=s.finished;$('#dead').textContent=s.dead},p=>{phase.textContent=p==='green'?'PODE ANDAR':'NÃO SE MEXA';phase.className=`phase ${p}`},finishers=>{results.innerHTML=(finishers.slice(0,5).map((p,i)=>`<div class="result-row"><span>${i+1}º ${p.user}</span><span>SOBREVIVEU</span></div>`).join('')||'<div class="result-row"><span>Nenhum sobrevivente</span><span>F</span></div>');panel.classList.remove('hidden')});
+game.seed(36);game.draw();
+const count=$('#countdown');count.classList.remove('hidden');let n=3;count.textContent=n;const cd=setInterval(()=>{n--;if(n){count.textContent=n}else{clearInterval(cd);count.textContent='VAI!';setTimeout(()=>count.classList.add('hidden'),500);game.start()}},700);
+$('#addBot').onclick=()=>game.addPlayer(`@live${++botId}`);
+$('#restart').onclick=()=>location.reload();
